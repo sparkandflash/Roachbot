@@ -2,10 +2,12 @@
 
 A quirky Discord bot for raising one adorable pet cockroach at a time.
 
+Responses are sent as embeds with a cockroach emote. Set `ROACH_EMOTE` in `.env` to use a custom Discord emote; otherwise Roachbot uses `🪳`.
+
 ## Commands
 
 - `/catch-a-roach` catches a new roach if you do not already have a living one.
-- `/feed-the-roach` attempts to feed your roach. It starts at an 8/10 per-attempt success rate, drops to 7/10 after 5 successful feeds, and keeps dropping by 1/10 every 5 successful feeds. A great mood cancels the age penalty.
+- `/feed-the-roach` attempts to feed your roach and shows the result with health.
 - `/pet-the-roach` improves your roach's mood.
 - `/check-roach-mood` shows the current mood.
 - `/check-roach-profile` displays your living roach's data.

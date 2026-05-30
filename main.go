@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	dbPath           = "roachbot.db"
-	maxRoachAge      = 30
-	fullCooldown     = 4 * time.Hour
-	fullEverySuccess = 3
+	dbPath            = "roachbot.db"
+	maxRoachAge       = 30
+	fullCooldown      = 4 * time.Hour
+	fullEverySuccess  = 3
+	defaultRoachEmote = "🪳"
+	embedColor        = 0x7A5C38
 
 	moodGreat   = "great"
 	moodNeutral = "neutral"
@@ -199,6 +201,7 @@ func (b *bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	defer cancel()
 
 	userID := interactionUserID(i)
+	userName := interactionUserName(i)
 	data := i.ApplicationCommandData()
 
 	var response string
@@ -215,7 +218,7 @@ func (b *bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	case "check-roach-mood":
 		response, err = b.checkMood(ctx, userID)
 	case "check-roach-profile":
-		response, err = b.checkProfile(ctx, userID)
+		response, err = b.checkProfile(ctx, userID, userName)
 	case "check-past-roaches":
 		response, err = b.checkPastRoaches(ctx, userID)
 	default:
@@ -227,7 +230,7 @@ func (b *bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		response = "The roach bureaucracy jammed. Try again in a moment."
 	}
 
-	if err := respond(s, i, response); err != nil {
+	if err := respond(s, i, commandTitle(data.Name), response); err != nil {
 		log.Printf("respond: %v", err)
 	}
 }
@@ -301,9 +304,9 @@ func (b *bot) feedRoach(ctx context.Context, ownerID string) (string, error) {
 			return "", err
 		}
 		if fullUntil != nil {
-			return fmt.Sprintf("%s accepted the offering and is now deeply, magnificently full. Age: %d/%d, health: %d/10, feed odds: %d/10.", bold(r.Name), r.Age, maxRoachAge, r.Health, chance), nil
+			return fmt.Sprintf("%s accepted the offering and is now deeply, magnificently full.\nHealth: %d/10\nAge: %d/%d successful feeds", bold(r.Name), r.Health, r.Age, maxRoachAge), nil
 		}
-		return fmt.Sprintf("%s accepted the offering. Tiny crunches. Big feelings. Age: %d/%d, health: %d/10, feed odds: %d/10.", bold(r.Name), r.Age, maxRoachAge, r.Health, chance), nil
+		return fmt.Sprintf("%s accepted the offering. Tiny crunches. Big feelings.\nHealth: %d/10\nAge: %d/%d successful feeds", bold(r.Name), r.Health, r.Age, maxRoachAge), nil
 	}
 
 	r.Health--
@@ -324,7 +327,7 @@ func (b *bot) feedRoach(ctx context.Context, ownerID string) (string, error) {
 	if err := b.updateRoach(ctx, r.ID, r.Age, r.Health, r.Mood, nil, nil); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s rejected the meal with theatrical legwork. Health: %d/10, mood: %s, feed odds were %d/10.", bold(r.Name), r.Health, r.Mood, chance), nil
+	return fmt.Sprintf("%s rejected the meal with theatrical legwork.\nHealth: %d/10", bold(r.Name), r.Health), nil
 }
 
 func (b *bot) petRoach(ctx context.Context, ownerID string) (string, error) {
@@ -353,7 +356,7 @@ func (b *bot) petRoach(ctx context.Context, ownerID string) (string, error) {
 	if before == moodGreat {
 		return fmt.Sprintf("%s was already feeling great, so the gentle pats became a spa day. Health: %d/10.", bold(r.Name), r.Health), nil
 	}
-	return fmt.Sprintf("You pet %s with one respectful fingertip. Mood improved from %s to %s.", bold(r.Name), before, r.Mood), nil
+	return fmt.Sprintf("You pet %s with one respectful fingertip. Their tiny heart brightens.\nMood: %s", bold(r.Name), moodDescription(r.Mood)), nil
 }
 
 func (b *bot) checkMood(ctx context.Context, ownerID string) (string, error) {
@@ -375,7 +378,7 @@ func (b *bot) checkMood(ctx context.Context, ownerID string) (string, error) {
 	}
 }
 
-func (b *bot) checkProfile(ctx context.Context, ownerID string) (string, error) {
+func (b *bot) checkProfile(ctx context.Context, ownerID, ownerName string) (string, error) {
 	r, err := b.livingRoach(ctx, ownerID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "You do not have a living roach profile yet. `/catch-a-roach` can fix that with style.", nil
@@ -385,22 +388,18 @@ func (b *bot) checkProfile(ctx context.Context, ownerID string) (string, error) 
 	}
 
 	return fmt.Sprintf(`%s
-ID: %d
-Owner ID: %s
+Owner: %s
 Created: %s
 Age: %d/%d successful feeds
 Health: %d/10
-Mood: %s
-Current feed odds: %d/10`,
+Mood: %s`,
 		bold(r.Name),
-		r.ID,
-		r.OwnerID,
+		ownerName,
 		r.CreatedAt.Format(time.RFC822),
 		r.Age,
 		maxRoachAge,
 		r.Health,
-		r.Mood,
-		feedChance(r),
+		moodDescription(r.Mood),
 	), nil
 }
 
@@ -468,6 +467,17 @@ func feedChance(r *roach) int {
 	return max(1, chance)
 }
 
+func moodDescription(mood string) string {
+	switch mood {
+	case moodGreat:
+		return "Antennae sparkling, confidence unreasonable."
+	case moodBad:
+		return "Staring at a crumb like it owes them money."
+	default:
+		return "A classic under-fridge philosopher mood."
+	}
+}
+
 func interactionUserID(i *discordgo.InteractionCreate) string {
 	if i.Member != nil && i.Member.User != nil {
 		return i.Member.User.ID
@@ -476,6 +486,28 @@ func interactionUserID(i *discordgo.InteractionCreate) string {
 		return i.User.ID
 	}
 	return ""
+}
+
+func interactionUserName(i *discordgo.InteractionCreate) string {
+	if i.Member != nil {
+		if i.Member.Nick != "" {
+			return i.Member.Nick
+		}
+		if i.Member.User != nil {
+			return userDisplayName(i.Member.User)
+		}
+	}
+	if i.User != nil {
+		return userDisplayName(i.User)
+	}
+	return "Unknown user"
+}
+
+func userDisplayName(user *discordgo.User) string {
+	if user.GlobalName != "" {
+		return user.GlobalName
+	}
+	return user.Username
 }
 
 func optionString(options []*discordgo.ApplicationCommandInteractionDataOption, name string) string {
@@ -487,17 +519,53 @@ func optionString(options []*discordgo.ApplicationCommandInteractionDataOption, 
 	return ""
 }
 
-func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
-	if len(content) > 1900 {
-		content = content[:1900] + "\n..."
+func respond(s *discordgo.Session, i *discordgo.InteractionCreate, title, description string) error {
+	if len(description) > 4000 {
+		description = description[:4000] + "\n..."
 	}
 
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: content,
+			Embeds: []*discordgo.MessageEmbed{
+				{
+					Title:       fmt.Sprintf("%s %s", roachEmote(), title),
+					Description: description,
+					Color:       embedColor,
+					Footer: &discordgo.MessageEmbedFooter{
+						Text: fmt.Sprintf("%s Roachbot", roachEmote()),
+					},
+				},
+			},
 		},
 	})
+}
+
+func commandTitle(command string) string {
+	switch command {
+	case "catch-a-roach":
+		return "Catch a Roach"
+	case "feed-the-roach":
+		return "Feed the Roach"
+	case "pet-the-roach":
+		return "Pet the Roach"
+	case "check-roach-mood":
+		return "Roach Mood"
+	case "check-roach-profile":
+		return "Roach Profile"
+	case "check-past-roaches":
+		return "Past Roaches"
+	default:
+		return "Roachbot"
+	}
+}
+
+func roachEmote() string {
+	emote := strings.TrimSpace(os.Getenv("ROACH_EMOTE"))
+	if emote == "" {
+		return defaultRoachEmote
+	}
+	return emote
 }
 
 func cleanRoachName(name string) string {
