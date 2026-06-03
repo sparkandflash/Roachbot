@@ -1,3 +1,4 @@
 .env
 roachbot
 roachbot.db
+roachbot-linux
